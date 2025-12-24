@@ -95,6 +95,7 @@ music_queue = MusicQueue()
 currently_playing = None
 player_process = None
 is_playing = False
+current_volume = 50
 
 async def play_audio_local(filepath):
     # Play audio file on Raspberry Pi using mpg123
@@ -231,5 +232,57 @@ async def now_playing(ctx):
         await ctx.send(f"🎵 **Now Playing:** {currently_playing['title']}\nAdded by: {currently_playing['added_by']}")
     else:
         await ctx.send("Nothing is currently playing.")
+
+@bot.command(name='volume', help='Set volume (0-100)')
+async def set_volume(ctx, vol: int = None):
+    global current_volume
+    
+    if vol is None:
+        await ctx.send(f"🔊 Current volume: **{current_volume}%**\nUsage: `!volume <0-100>`")
+        return
+    
+    if 0 <= vol <= 100:
+        current_volume = vol
+        
+        # Set system volume using amixer
+        try:
+            process = await asyncio.create_subprocess_exec(
+                'amixer', 'set', 'Master', f'{vol}%',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await process.communicate()
+            
+            if process.returncode == 0:
+                await ctx.send(f"🔊 Volume set to **{vol}%**")
+            else:
+                # Fallback: try setting PCM volume
+                process = await asyncio.create_subprocess_exec(
+                    'amixer', 'set', 'PCM', f'{vol}%',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await process.communicate()
+                
+                if process.returncode == 0:
+                    await ctx.send(f"🔊 Volume set to **{vol}%**")
+                else:
+                    await ctx.send(f"⚠️ Volume updated in bot (will apply to next song), but couldn't set system volume")
+        except Exception as e:
+            await ctx.send(f"⚠️ Volume updated to {vol}%, but system volume control failed: {e}")
+    else:
+        await ctx.send("❌ Please provide a volume between 0 and 100.")
+
+@bot.command(name='volumeup', help='Increase volume by 10%')
+async def volume_up(ctx):
+    global current_volume
+    new_vol = min(100, current_volume + 10)
+    await set_volume(ctx, new_vol)
+
+@bot.command(name='volumedown', help='Decrease volume by 10%')
+async def volume_down(ctx):
+    global current_volume
+    new_vol = max(0, current_volume - 10)
+    await set_volume(ctx, new_vol)
 
 bot.run(os.getenv('DISCORD_TOKEN'))
